@@ -1,14 +1,20 @@
 import os
-import json
 import requests
 from bs4 import BeautifulSoup
+from tornado import ioloop, httpclient
 
 directory = "Episodes/"
+path = ""
 
+#anime settings
 ep_start = str(0)
 ep_end = str(5001)
 anime_id = str(1502) #1502 watch this one
 default_ep = str(1)
+
+#async settings
+i = 0
+threads = 100
 
 url = "https://www04.gogoanimes.tv/load-list-episode?ep_start="+ep_start+"&ep_end="+ep_end+"&id="+anime_id+"&default_ep="+default_ep
 
@@ -83,6 +89,7 @@ def get_m3u8_playlist_links(m3u8_stream_src,headers):
     return m3u8_links,m3u8_playlist
 
 def save_playlist_information(m3u8_src,directory,anime_name,m3u8_quality_playlist,m3u8_playlist,m3u8_stream):
+    global path
     m3u8_src_name = m3u8_src.split("/")[-1:][0]
     anime_folder(directory+anime_name) #creates the anime folder
     path = directory+anime_name+"/"
@@ -93,13 +100,34 @@ def save_playlist_information(m3u8_src,directory,anime_name,m3u8_quality_playlis
     return path
 
 def download_ts_files(m3u8_links,url_domain,headers,path):
+    global i,threads
+    http_client = httpclient.AsyncHTTPClient(force_instance=True,defaults=dict(user_agent="Mozilla/5.0"),max_clients=threads)
     for sub_link in m3u8_links:
-        #do async tornado download here
-        req = requests.get(url_domain+sub_link, headers=headers)
-        m3u8_video_file_part = req.content #use binary
-        with open(path+sub_link, "wb") as file: #save the file as a binary
-            file.write(m3u8_video_file_part)
-        print("Downloaded:",sub_link)
+        url = url_domain+sub_link
+        request = httpclient.HTTPRequest(url.strip(),headers=headers,method='GET',connect_timeout=10000,request_timeout=10000)
+        http_client.fetch(request,handle_ts_file_response)
+        i += 1
+    ioloop.IOLoop.instance().start()
+
+def handle_ts_file_response(response):
+    if response.code == 599:
+        print(response.effective_url,"error")
+        http_client.fetch(response.effective_url.strip(), handle_ts_file_response, method='GET',connect_timeout=10000,request_timeout=10000)
+    else:
+        global i,path
+        try:
+            file_name = str(response.effective_url.split("/")[-1:][0])
+            m3u8_video_file_part = response.body #use binary
+            with open(path+file_name, "wb") as file: #save the file as a binary
+                file.write(m3u8_video_file_part)
+            print("Downloaded:",file_name)
+            #print("alive",response.effective_url)
+        except Exception as e:
+            print("dead",response.effective_url,e)
+        i -= 1
+        if i == 0: #all pages loaded
+            ioloop.IOLoop.instance().stop()
+            print("Download Complete")
 
 def download_episode(url,directory="Episodes/",headers={"Origin": "https://vidstreaming.io", "Referer": "https://vidstreaming.io"}):
     try:
@@ -121,7 +149,7 @@ def download_episode(url,directory="Episodes/",headers={"Origin": "https://vidst
         print("Downloading Playlist Files..")
         download_ts_files(m3u8_links,url_domain,headers,path)
         
-        print("Complete")
+        print("Finished Episode")
         
     except Exception as e:
         print(e)
