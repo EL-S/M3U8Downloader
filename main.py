@@ -6,6 +6,9 @@ from tornado import ioloop, httpclient
 directory = "Episodes/"
 path = ""
 
+#program settings
+silent = True
+
 #anime settings
 ep_start = str(0)
 ep_end = str(5001)
@@ -15,17 +18,6 @@ default_ep = str(1)
 #async settings
 i = 0
 threads = 100
-
-url = "https://www04.gogoanimes.tv/load-list-episode?ep_start="+ep_start+"&ep_end="+ep_end+"&id="+anime_id+"&default_ep="+default_ep
-
-req = requests.get(url)
-page = req.text
-soup = BeautifulSoup(page, "lxml")
-episodes = ["https://www04.gogoanimes.tv"+tag.get("href").strip() for tag in soup.findAll("a")]
-print("API Episodes:",url)
-print("Episodes:",len(episodes))
-
-print("Episode Link:",episodes[-1])
 
 def init():
     global directory
@@ -69,7 +61,8 @@ def get_m3u8_playlist_src(m3u8_src,headers):
                 m3u8_stream_options.append(line)
         except:
             pass
-    print("Options:",m3u8_stream_options)
+    if not silent:
+        print("Options:",m3u8_stream_options)
     m3u8_quality_playlist = m3u8_stream_options[0]
     url_domain = "/".join(m3u8_src.split("/")[:-1])+"/"
     m3u8_stream_src = url_domain + m3u8_quality_playlist
@@ -120,7 +113,8 @@ def handle_ts_file_response(response):
             m3u8_video_file_part = response.body #use binary
             with open(path+file_name, "wb") as file: #save the file as a binary
                 file.write(m3u8_video_file_part)
-            print("Downloaded:",file_name)
+            if not silent:
+                print("Downloaded:",file_name)
             #print("alive",response.effective_url)
         except Exception as e:
             print("dead",response.effective_url,e)
@@ -132,21 +126,26 @@ def handle_ts_file_response(response):
 def download_episode(url,directory="Episodes/",headers={"Origin": "https://vidstreaming.io", "Referer": "https://vidstreaming.io"}):
     try:
         video_src,anime_name = get_video_src(url)
-        print("Embed Src",video_src)#,anime_name)
+        if not silent:
+            print("Embed Src",video_src)#,anime_name)
 
         m3u8_src = get_m3u8_initiator_src(video_src)
-        print("M3U8 Src",m3u8_src)
+        if not silent:
+            print("M3U8 Src",m3u8_src)
 
         m3u8_stream_src,url_domain,m3u8_quality_playlist,m3u8_stream = get_m3u8_playlist_src(m3u8_src,headers)
-        print("Playlist:",m3u8_stream_src)#,url_domain)
+        if not silent:
+            print("Playlist:",m3u8_stream_src)#,url_domain)
 
         m3u8_links,m3u8_playlist = get_m3u8_playlist_links(m3u8_stream_src,headers)
-        print("Parts:",len(m3u8_links))
+        if not silent:
+            print("Parts:",len(m3u8_links))
         
-        print("Saving Playlist Files..")
+        if not silent:
+            print("Saving Playlist Files..")
         path = save_playlist_information(m3u8_src,directory,anime_name,m3u8_quality_playlist,m3u8_playlist,m3u8_stream)
 
-        print("Downloading Playlist Files..")
+        print("Downloading Episode Files..")
         download_ts_files(m3u8_links,url_domain,headers,path)
         
         print("Finished Episode")
@@ -155,8 +154,22 @@ def download_episode(url,directory="Episodes/",headers={"Origin": "https://vidst
         print(e)
         download_episode(episodes[-1],directory)
 
+def download_anime(ep_start,ep_end,anime_id,default_ep):
+    url = "https://www04.gogoanimes.tv/load-list-episode?ep_start="+ep_start+"&ep_end="+ep_end+"&id="+anime_id+"&default_ep="+default_ep
+
+    req = requests.get(url)
+    page = req.text
+    soup = BeautifulSoup(page, "lxml")
+    episodes = ["https://www04.gogoanimes.tv"+tag.get("href").strip() for tag in soup.findAll("a")][::-1] #reverses episode order
+    if not silent:
+        print("API Episodes:",url)
+        
+    print("Episodes:",len(episodes))
+
+    for episode in episodes:
+        print("Episode:",episode)
+        download_episode(episode)
+
 init()
-download_episode(episodes[-1],directory)
 
-
-#'Expect-CT': 'max-age=604800, report-uri="https://report-uri.cloudflare.com/cdn-cgi/beacon/expect-ct"', 'Server': 'cloudflare', 'CF-RAY': '476881268bf11914-AKL', 'Content-Encoding': 'gzip'}
+download_anime(ep_start,ep_end,anime_id,default_ep)
